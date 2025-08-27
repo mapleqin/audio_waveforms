@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.google.android.exoplayer2.ExoPlayer
 import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.PlaybackException
@@ -11,9 +12,9 @@ import com.google.android.exoplayer2.Player
 import io.flutter.plugin.common.MethodChannel
 
 class AudioPlayer(
-        context: Context,
-        channel: MethodChannel,
-        playerKey: String
+    context: Context,
+    channel: MethodChannel,
+    playerKey: String
 ) {
     private var handler: Handler = Handler(Looper.getMainLooper())
     private var runnable: Runnable? = null
@@ -27,11 +28,12 @@ class AudioPlayer(
     private var updateFrequency: Long = 200
 
     fun preparePlayer(
-            result: MethodChannel.Result,
-            path: String?,
-            volume: Float?,
-            frequency: Long?,
+        result: MethodChannel.Result,
+        path: String?,
+        volume: Float?,
+        frequency: Long?,
     ) {
+        var isReplyAlreadySubmitted = false
         if (path != null) {
             frequency?.let {
                 updateFrequency = it
@@ -42,12 +44,20 @@ class AudioPlayer(
             player?.clearMediaItems()
             player = ExoPlayer.Builder(appContext).build()
             player?.setMediaItem(mediaItem)
-            player?.prepare()
             playerListener = object : Player.Listener {
 
                 override fun onPlayerError(error: PlaybackException) {
                     super.onPlayerError(error)
-                    result.error(Constants.LOG_TAG, error.message, "Unable to load media source.")
+                    if (isReplyAlreadySubmitted) {
+                        Log.e(Constants.LOG_TAG, "ReplyAlreadySubmitted", error)
+                    } else {
+                        isReplyAlreadySubmitted = true
+                        result.error(
+                            Constants.LOG_TAG,
+                            error.message,
+                            "Unable to load media source."
+                        )
+                    }
                 }
 
                 override fun onPlayerStateChanged(isReady: Boolean, state: Int) {
@@ -55,6 +65,7 @@ class AudioPlayer(
                         if (state == Player.STATE_READY) {
                             player?.volume = volume ?: 1F
                             isPlayerPrepared = true
+                            isReplyAlreadySubmitted = true
                             result.success(true)
                         }
                     }
@@ -84,13 +95,14 @@ class AudioPlayer(
                         }
                         args[Constants.playerKey] = key
                         methodChannel.invokeMethod(
-                                Constants.onDidFinishPlayingAudio,
-                                args
+                            Constants.onDidFinishPlayingAudio,
+                            args
                         )
                     }
                 }
             }
             player?.addListener(playerListener!!)
+            player?.prepare()
         } else {
             result.error(Constants.LOG_TAG, "path to audio file or unique key can't be null", "")
         }
