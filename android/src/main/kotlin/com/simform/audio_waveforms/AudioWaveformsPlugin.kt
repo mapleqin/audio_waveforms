@@ -95,7 +95,7 @@ class AudioWaveformsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                 if (key != null) {
                     initPlayer(key)
                     audioPlayers[key]?.preparePlayer(
-                        result,
+                        MethodChannelResult(result),
                         audioPath,
                         volume?.toFloat(),
                         frequency?.toLong(),
@@ -304,7 +304,7 @@ class AudioWaveformsPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
             expectedPoints = noOfSamples,
             key = playerKey,
             path = path,
-            result = result,
+            result = MethodChannelResult(result),
             extractorCallBack = object : ExtractorCallBack {
                 override fun onProgress(value: Float) {
                     if (value == 1.0F) {

@@ -10,6 +10,7 @@ import com.google.android.exoplayer2.MediaItem
 import com.google.android.exoplayer2.PlaybackException
 import com.google.android.exoplayer2.Player
 import io.flutter.plugin.common.MethodChannel
+import androidx.core.net.toUri
 
 class AudioPlayer(
     context: Context,
@@ -28,17 +29,16 @@ class AudioPlayer(
     private var updateFrequency: Long = 200
 
     fun preparePlayer(
-        result: MethodChannel.Result,
+        result: MethodChannelResult,
         path: String?,
         volume: Float?,
         frequency: Long?,
     ) {
-        var isReplyAlreadySubmitted = false
         if (path != null) {
             frequency?.let {
                 updateFrequency = it
             }
-            val uri = Uri.parse(path)
+            val uri = path.toUri()
             val mediaItem = MediaItem.fromUri(uri)
             stop()
             player?.clearMediaItems()
@@ -48,16 +48,11 @@ class AudioPlayer(
 
                 override fun onPlayerError(error: PlaybackException) {
                     super.onPlayerError(error)
-                    if (isReplyAlreadySubmitted) {
-                        Log.e(Constants.LOG_TAG, "ReplyAlreadySubmitted", error)
-                    } else {
-                        isReplyAlreadySubmitted = true
-                        result.error(
-                            Constants.LOG_TAG,
-                            error.message,
-                            "Unable to load media source."
-                        )
-                    }
+                    result.error(
+                        Constants.LOG_TAG,
+                        error.message,
+                        "Unable to load media source."
+                    )
                 }
 
                 override fun onPlayerStateChanged(isReady: Boolean, state: Int) {
@@ -65,7 +60,6 @@ class AudioPlayer(
                         if (state == Player.STATE_READY) {
                             player?.volume = volume ?: 1F
                             isPlayerPrepared = true
-                            isReplyAlreadySubmitted = true
                             result.success(true)
                         }
                     }

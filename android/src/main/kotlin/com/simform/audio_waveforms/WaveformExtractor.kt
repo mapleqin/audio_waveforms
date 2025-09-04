@@ -12,13 +12,14 @@ import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import kotlin.math.pow
 import kotlin.math.sqrt
+import androidx.core.net.toUri
 
 class WaveformExtractor(
     private val path: String,
     private val expectedPoints: Int,
     private val key: String,
     private val methodChannel: MethodChannel,
-    private val result: MethodChannel.Result,
+    private val result: MethodChannelResult,
     private val extractorCallBack: ExtractorCallBack,
     private val context: Context,
 ) {
@@ -28,19 +29,17 @@ class WaveformExtractor(
     private var progress = 0F
     private var currentProgress = 0F
 
-    private val finishCount = CountDownLatch(1)
     private var inputEof = false
     private var sampleRate = 0
     private var channels = 1
     private var pcmEncodingBit = 16
     private var totalSamples = 0L
     private var perSamplePoints = 0L
-    private var isReplySubmitted = false
 
     private fun getFormat(path: String): MediaFormat? {
         val mediaExtractor = MediaExtractor()
         this.extractor = mediaExtractor
-        val uri = Uri.parse(path)
+        val uri = path.toUri()
         mediaExtractor.setDataSource(context, uri, null)
         val trackCount = mediaExtractor.trackCount
         repeat(trackCount) {
@@ -65,31 +64,40 @@ class WaveformExtractor(
                     override fun onInputBufferAvailable(codec: MediaCodec, index: Int) {
                         if (inputEof || index < 0) return
                         val extractor = extractor ?: return
-                        codec.getInputBuffer(index)?.let { buf ->
-                            val size = extractor.readSampleData(buf, 0)
-                            val sampleTime = extractor.sampleTime
-                            if (size > 0 && sampleTime >= 0) {
-                                try {
-                                    codec.queueInputBuffer(index, 0, size, sampleTime, 0)
-                                    extractor.advance()
-                                } catch (e: Exception) {
-                                    inputEof = true
-                                    result.error(
-                                        Constants.LOG_TAG,
-                                        e.message,
-                                        "Invalid input buffer."
+                        try {
+                            codec.getInputBuffer(index)?.let { buf ->
+                                val size = extractor.readSampleData(buf, 0)
+                                val sampleTime = extractor.sampleTime
+                                if (size > 0 && sampleTime >= 0) {
+                                    try {
+                                        codec.queueInputBuffer(index, 0, size, sampleTime, 0)
+                                        extractor.advance()
+                                    } catch (e: Exception) {
+                                        inputEof = true
+                                        result.error(
+                                            Constants.LOG_TAG,
+                                            e.message,
+                                            "Invalid input buffer."
+                                        )
+                                    }
+                                } else {
+                                    codec.queueInputBuffer(
+                                        index,
+                                        0,
+                                        0,
+                                        0,
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM
                                     )
+                                    inputEof = true
                                 }
-                            } else {
-                                codec.queueInputBuffer(
-                                    index,
-                                    0,
-                                    0,
-                                    0,
-                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                                )
-                                inputEof = true
                             }
+
+                        } catch (e: Throwable) {
+                            result.error(
+                                Constants.LOG_TAG,
+                                e.message,
+                                "Invalid input buffer."
+                            )
                         }
                     }
 
@@ -115,15 +123,11 @@ class WaveformExtractor(
                     }
 
                     override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                        if (!isReplySubmitted) {
-                            result.error(
-                                Constants.LOG_TAG,
-                                e.message,
-                                "An error is thrown while decoding the audio file"
-                            )
-                            isReplySubmitted = true
-                            finishCount.countDown()
-                        }
+                        result.error(
+                            Constants.LOG_TAG,
+                            e.message,
+                            "An error is thrown while decoding the audio file"
+                        )
                     }
 
                     override fun onOutputBufferAvailable(
@@ -132,21 +136,31 @@ class WaveformExtractor(
                         info: MediaCodec.BufferInfo
                     ) {
                         if (info.size > 0) {
-                            codec.getOutputBuffer(index)?.let { buf ->
-                                val size = info.size
-                                buf.position(info.offset)
-                                when (pcmEncodingBit) {
-                                    8 -> {
-                                        handle8bit(size, buf)
+                            try {
+                                codec.getOutputBuffer(index)?.let { buf ->
+                                    val size = info.size
+                                    buf.position(info.offset)
+                                    when (pcmEncodingBit) {
+                                        8 -> {
+                                            handle8bit(size, buf)
+                                        }
+
+                                        16 -> {
+                                            handle16bit(size, buf)
+                                        }
+
+                                        32 -> {
+                                            handle32bit(size, buf)
+                                        }
                                     }
-                                    16 -> {
-                                        handle16bit(size, buf)
-                                    }
-                                    32 -> {
-                                        handle32bit(size, buf)
-                                    }
+                                    codec.releaseOutputBuffer(index, false)
                                 }
-                                codec.releaseOutputBuffer(index, false)
+                            } catch (e: Throwable) {
+                                result.error(
+                                    Constants.LOG_TAG,
+                                    e.message,
+                                    "Invalid output buffer."
+                                )
                             }
                         }
 
@@ -163,17 +177,12 @@ class WaveformExtractor(
             }
 
         } catch (e: Exception) {
-            if (!isReplySubmitted) {
-                result.error(
-                    Constants.LOG_TAG,
-                    e.message,
-                    "An error is thrown before decoding the audio file"
-                )
-                isReplySubmitted = true
-            }
+            result.error(
+                Constants.LOG_TAG,
+                e.message,
+                "An error is thrown before decoding the audio file"
+            )
         }
-
-
     }
 
     var sampleData = ArrayList<Float>()
@@ -262,7 +271,6 @@ class WaveformExtractor(
         decoder?.stop()
         decoder?.release()
         extractor?.release()
-        finishCount.countDown()
     }
 }
 
