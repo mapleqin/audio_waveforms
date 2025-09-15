@@ -9,7 +9,11 @@ class MethodChannelResult(private val delegate: MethodChannel.Result) {
 
     fun success(result: Any?): Boolean {
         if (submitted.compareAndSet(false, true)) {
-            delegate.success(result)
+            try {
+                delegate.success(result)
+            } catch (e: Throwable) {
+                Log.d(Constants.LOG_TAG, "MethodChannel result error", e)
+            }
             return true
         } else {
             Log.d(Constants.LOG_TAG, "MethodChannel result success reply submitted")
@@ -23,7 +27,11 @@ class MethodChannelResult(private val delegate: MethodChannel.Result) {
         errorDetails: Any?
     ): Boolean {
         if (submitted.compareAndSet(false, true)) {
-            delegate.error(errorCode, errorMessage, errorDetails)
+            try {
+                delegate.error(errorCode, errorMessage, errorDetails)
+            } catch (e: Throwable) {
+                Log.d(Constants.LOG_TAG, "MethodChannel result error", e)
+            }
             return true
         } else {
             Log.d(
@@ -36,7 +44,11 @@ class MethodChannelResult(private val delegate: MethodChannel.Result) {
 
     fun notImplemented(): Boolean {
         if (submitted.compareAndSet(false, true)) {
-            delegate.notImplemented()
+            try {
+                delegate.notImplemented()
+            } catch (e: Throwable) {
+                Log.d(Constants.LOG_TAG, "MethodChannel result error", e)
+            }
             return true
         } else {
             Log.d(
